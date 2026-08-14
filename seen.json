@@ -1,6 +1,4 @@
 [
-"/locations/offre/bagneux/PRV-351975",
-"/locations/offre/bois-colombes/PRV-338769",
 "/locations/offre/chatillon/PRV-322273",
 "/locations/offre/clamart/PRV-250994",
 "/locations/offre/clamart/PRV-251013",
@@ -14,6 +12,7 @@
 "/locations/offre/colombes/PRV-351826",
 "/locations/offre/colombes/PRV-384979",
 "/locations/offre/garches/PRV-343337",
+"/locations/offre/issy-les-moulineaux/PRV-330807",
 "/locations/offre/le-plessis-robinson/441-4243-8285",
 "/locations/offre/le-plessis-robinson/441-4243-8325",
 "/locations/offre/le-plessis-robinson/PRV-054145",
@@ -22,6 +21,8 @@
 "/locations/offre/le-plessis-robinson/PRV-054197",
 "/locations/offre/le-plessis-robinson/PRV-054200",
 "/locations/offre/le-plessis-robinson/PRV-054217",
+"/locations/offre/le-plessis-robinson/PRV-216463",
+"/locations/offre/le-plessis-robinson/PRV-351630",
 "/locations/offre/levallois-perret/441-4121-5771",
 "/locations/offre/levallois-perret/PRV-324412",
 "/locations/offre/montrouge/441-3126-491",
@@ -38,6 +39,5 @@
 "/locations/offre/rueil-malmaison/PRV-332343",
 "/locations/offre/rueil-malmaison/PRV-347755",
 "/locations/offre/rueil-malmaison/PRV-347993",
-"/locations/offre/rueil-malmaison/PRV-350115",
-"/locations/offre/sevres/PRV-347158"
+"/locations/offre/rueil-malmaison/PRV-350115"
 ]
