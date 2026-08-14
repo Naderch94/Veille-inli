@@ -29,7 +29,7 @@ jobs:
           INLI_STATE: seen2.json
         run: python inli_watch.py
         
-- name: Sauvegarder l'etat
+      - name: Sauvegarder l'etat
         run: |
           git config user.name "veille-inli"
           git config user.email "actions@github.com"
