@@ -1,0 +1,39 @@
+name: Veille in'li 2
+
+on:
+  schedule:
+    - cron: "5,20,35,50 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: veille-inli-2
+
+jobs:
+  surveiller:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verifier les annonces
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
+          INLI_URL: ${{ vars.inliparis }}
+          INLI_STATE: seen2.json
+        run: python inli_watch.py
+
+      - name: Sauvegarder l'etat
+        run: |
+          git config user.name "veille-inli"
+          git config user.email "actions@github.com"
+          git pull --rebase
+          git add seen2.json
+          git diff --staged --quiet || git commit -m "maj annonces 2"
+          git push
