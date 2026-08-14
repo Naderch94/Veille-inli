@@ -28,7 +28,7 @@ jobs:
           INLI_URL: ${{ vars.inliparis }}
           INLI_STATE: seen2.json
         run: python inli_watch.py
-        
+
       - name: Sauvegarder l'etat
         run: |
           git config user.name "veille-inli"
@@ -40,4 +40,3 @@ jobs:
           git add seen2.json
           git diff --staged --quiet || git commit -m "maj annonces 2"
           git push
-     
