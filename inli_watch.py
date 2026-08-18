@@ -36,7 +36,10 @@ UA = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
-OFFER_RE = re.compile(r'href="(/locations/offre/[^"?#]+)"')
+OFFER_RE = re.compile(
+    r'href="(?:https?://www\.inli\.fr)?'
+    r'(/location[^"?#]*\d{5}/[^"?#]+|/locations/offre/[^"?#]+)"'
+)
 TITLE_RE = re.compile(r"<title>(.*?)</title>", re.S | re.I)
 DESC_RE = re.compile(
     r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']*)', re.I
