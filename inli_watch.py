@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""
-Veille des annonces in'li.
-
-Compare la liste des annonces actuellement en ligne avec celle du dernier
-passage (seen.json) et envoie une alerte Telegram pour chaque NOUVELLE annonce.
-
-Variables d'environnement :
-  INLI_URL    URL de recherche in'li (avec tes filtres). Valeur par defaut : 92 par prix croissant.
-  TG_TOKEN    Token du bot Telegram (facultatif : sans lui, affichage console).
-  TG_CHAT     Ton chat_id Telegram.
-  INLI_STATE  Chemin du fichier d'etat (defaut : seen.json).
-
-Aucune dependance externe : uniquement la bibliotheque standard Python 3.
-"""
+"""Veille des annonces in'li avec diagnostic et alerte en cas de panne."""
 
 import html
 import json
@@ -30,64 +17,74 @@ DEFAULT_URL = (
 )
 SEARCH_URL = os.environ.get("INLI_URL") or DEFAULT_URL
 STATE_FILE = os.environ.get("INLI_STATE") or "seen.json"
+INCIDENT_FILE = STATE_FILE.replace(".json", "_incident.json")
 MAX_PAGES = 15
-UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+DELAI_ALERTE = 6 * 3600  # une alerte de panne toutes les 6 h maximum
+
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 OFFER_RE = re.compile(
-    r'href="(?:https?://www\.inli\.fr)?'
-    r'(/location[^"?#]*\d{5}/[^"?#]+|/locations/offre/[^"?#]+)"'
+    r'''href=["'](?:https?://(?:www\.)?inli\.fr)?'''
+    r'''(/location[^"'?#]*\d{5}/[^"'?#]+|/locations/offre/[^"'?#]+)["']'''
 )
 TITLE_RE = re.compile(r"<title>(.*?)</title>", re.S | re.I)
-DESC_RE = re.compile(
-    r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']*)', re.I
-)
+DESC_RE = re.compile(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']*)', re.I)
 
 
-def fetch(url: str) -> str:
-    req = Request(
-        url,
-        headers={
-            "User-Agent": UA,
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "fr-FR,fr;q=0.9",
-        },
-    )
-    with urlopen(req, timeout=30) as resp:
-        return resp.read().decode("utf-8", "replace")
+def fetch(url, essais=3):
+    derniere = None
+    for n in range(essais):
+        try:
+            req = Request(url, headers={
+                "User-Agent": UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "fr-FR,fr;q=0.9",
+                "Referer": BASE + "/",
+            })
+            with urlopen(req, timeout=30) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except Exception as exc:
+            derniere = exc
+            if n < essais - 1:
+                time.sleep(8)
+    raise derniere
 
 
-def with_page(url: str, page: int) -> str:
+def with_page(url, page):
     sep = "&" if "?" in url else "?"
-    return f"{url}{sep}page={page}"
+    return "%s%spage=%d" % (url, sep, page)
 
 
-def list_offers() -> dict:
-    """Retourne {chemin_annonce: url_complete} sur toutes les pages de resultats."""
+def list_offers():
     offers = {}
     for page in range(1, MAX_PAGES + 1):
         try:
             page_html = fetch(with_page(SEARCH_URL, page))
-        except Exception as exc:  # reseau / 5xx
-            print(f"[warn] page {page} illisible : {exc}", file=sys.stderr)
+        except Exception as exc:
+            print("[warn] page %d illisible : %s" % (page, exc), file=sys.stderr)
             break
 
         found = set(OFFER_RE.findall(page_html))
+        if page == 1:
+            marqueur = "logements" in page_html.lower()
+            print("[info] page 1 : %d caracteres, mot-cle present : %s, liens trouves : %d"
+                  % (len(page_html), marqueur, len(found)))
+            if not found:
+                print("[info] extrait recu : %s" % re.sub(r"\s+", " ", page_html[:400]))
+
         nouveaux = found - set(offers)
         if not nouveaux:
-            break  # derniere page atteinte (ou page vide / repetee)
+            break
         for path in nouveaux:
             offers[path] = urljoin(BASE, path)
-        time.sleep(1.5)  # on reste poli avec le serveur
+        time.sleep(2)
     return offers
 
 
-def describe(url: str) -> str:
-    """Petit resume de l'annonce (titre + meta description) pour le message."""
+def describe(url):
     try:
-        page_html = fetch(url)
+        page_html = fetch(url, essais=2)
     except Exception:
         return ""
     parts = []
@@ -100,7 +97,7 @@ def describe(url: str) -> str:
     return " — ".join(parts)[:300]
 
 
-def notify(message: str) -> None:
+def notify(message):
     token = os.environ.get("TG_TOKEN")
     chat = os.environ.get("TG_CHAT")
     print(message)
@@ -108,46 +105,56 @@ def notify(message: str) -> None:
         return
     data = urlencode({"chat_id": chat, "text": message}).encode()
     try:
-        urlopen(
-            Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data),
-            timeout=30,
-        )
+        urlopen(Request("https://api.telegram.org/bot%s/sendMessage" % token, data=data), timeout=30)
     except Exception as exc:
-        print(f"[warn] envoi Telegram echoue : {exc}", file=sys.stderr)
+        print("[warn] envoi Telegram echoue : %s" % exc, file=sys.stderr)
 
 
-def main() -> int:
+def alerte_panne():
+    """Previent sur Telegram, au maximum une fois toutes les six heures."""
+    maintenant = time.time()
+    try:
+        with open(INCIDENT_FILE, encoding="utf-8") as f:
+            dernier = json.load(f).get("dernier_envoi", 0)
+    except Exception:
+        dernier = 0
+    if maintenant - dernier > DELAI_ALERTE:
+        notify("⚠️ Veille in'li : aucune annonce detectee.\n"
+               "Le site a peut-etre change, ou bloque temporairement les requetes.\n"
+               "Voir le journal dans l'onglet Actions de GitHub.")
+        with open(INCIDENT_FILE, "w", encoding="utf-8") as f:
+            json.dump({"dernier_envoi": maintenant}, f)
+
+
+def main():
     offers = list_offers()
     if not offers:
-        print(
-            "[erreur] aucune annonce detectee : le site a peut-etre change de structure.",
-            file=sys.stderr,
-        )
+        print("[erreur] aucune annonce detectee : site modifie ou requete bloquee.", file=sys.stderr)
+        alerte_panne()
         return 1
 
-    premier_passage = not os.path.exists(STATE_FILE)
-    if premier_passage:
-        deja_vues = set()
-    else:
+    premier = not os.path.exists(STATE_FILE)
+    deja = set()
+    if not premier:
         with open(STATE_FILE, encoding="utf-8") as f:
-            deja_vues = set(json.load(f))
+            deja = set(json.load(f))
 
-    nouvelles = sorted(set(offers) - deja_vues)
+    nouvelles = sorted(set(offers) - deja)
 
-    if premier_passage:
-        print(f"Initialisation : {len(offers)} annonces enregistrees, aucune alerte.")
+    if premier:
+        print("Initialisation : %d annonces enregistrees, aucune alerte." % len(offers))
     elif nouvelles:
         for path in nouvelles:
-            url = offers[path]
-            resume = describe(url)
-            notify(f"🏠 Nouvelle annonce in'li\n{resume}\n{url}")
+            notify("🏠 Nouvelle annonce in'li\n%s\n%s" % (describe(offers[path]), offers[path]))
             time.sleep(1)
-        print(f"{len(nouvelles)} nouvelle(s) annonce(s) signalee(s).")
+        print("%d nouvelle(s) annonce(s) signalee(s)." % len(nouvelles))
     else:
-        print(f"Rien de neuf ({len(offers)} annonces en ligne).")
+        print("Rien de neuf (%d annonces en ligne)." % len(offers))
 
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(sorted(offers), f, ensure_ascii=False, indent=0)
+    if os.path.exists(INCIDENT_FILE):
+        os.remove(INCIDENT_FILE)
     return 0
 
 
